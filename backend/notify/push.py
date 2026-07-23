@@ -25,11 +25,9 @@ class PushNotifier:
         self.topic = self.settings.ntfy_topic
 
     def _topic_for(self, user_id: int | None) -> str:
-        """Global topic plus an optional per-user topic so caregivers can
-        subscribe to a single person if they want (e.g. medication-reminders-3)."""
-        if user_id is None:
-            return self.topic
-        return f"{self.topic}-{user_id}"
+        """All notifications go to one topic; the person's name is in the title.
+        A single mobile subscription then receives every reminder for the family."""
+        return self.topic
 
     async def push(
         self,

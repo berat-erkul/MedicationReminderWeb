@@ -84,10 +84,20 @@ async function startWhatsApp() {
 
     if (connection === "close") {
       const code = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = code !== DisconnectReason.loggedOut;
-      connectionStatus = shouldReconnect ? "reconnecting" : "logged_out";
       logger.warn({ code }, "WhatsApp disconnected");
-      if (shouldReconnect) {
+      if (code === DisconnectReason.loggedOut) {
+        // Session invalidated (401): wipe stale creds so a fresh QR is shown
+        // instead of getting stuck logged out.
+        connectionStatus = "logged_out";
+        try {
+          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+          fs.mkdirSync(AUTH_DIR, { recursive: true });
+        } catch (err) {
+          logger.error({ err }, "Failed to clear auth dir");
+        }
+        startWhatsApp();
+      } else {
+        connectionStatus = "reconnecting";
         startWhatsApp();
       }
     }

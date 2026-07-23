@@ -17,9 +17,18 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=utc_now)
 
-    schedules: list["Schedule"] = Relationship(back_populates="user")
-    reminders: list["Reminder"] = Relationship(back_populates="user")
-    messages: list["Message"] = Relationship(back_populates="user")
+    schedules: list["Schedule"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    reminders: list["Reminder"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+    messages: list["Message"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class Medicine(SQLModel, table=True):
@@ -31,7 +40,10 @@ class Medicine(SQLModel, table=True):
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
 
-    schedules: list["Schedule"] = Relationship(back_populates="medicine")
+    schedules: list["Schedule"] = Relationship(
+        back_populates="medicine",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class Schedule(SQLModel, table=True):
@@ -51,7 +63,10 @@ class Schedule(SQLModel, table=True):
 
     user: Optional[User] = Relationship(back_populates="schedules")
     medicine: Optional[Medicine] = Relationship(back_populates="schedules")
-    reminders: list["Reminder"] = Relationship(back_populates="schedule")
+    reminders: list["Reminder"] = Relationship(
+        back_populates="schedule",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class Reminder(SQLModel, table=True):

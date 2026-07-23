@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
       - name: Build & start stack
-        run: docker compose up -d --build
+        run: docker compose up -d --build --remove-orphans
       - name: Prune old images
         run: docker image prune -f
       - name: Health check

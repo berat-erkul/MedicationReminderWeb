@@ -39,6 +39,15 @@ class AIService:
         if not self.settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
+        model = self.settings.openrouter_model
+        # Hard guard: never call a paid model when free-only is on → no billing.
+        if self.settings.openrouter_free_only and not model.endswith(":free"):
+            raise RuntimeError(
+                f"OPENROUTER_FREE_ONLY aktif ama model ücretsiz değil: '{model}'. "
+                "Sonu ':free' ile biten bir model kullan (örn. "
+                "meta-llama/llama-3.3-70b-instruct:free)."
+            )
+
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -51,7 +60,7 @@ class AIService:
                     "Authorization": f"Bearer {self.settings.openrouter_api_key}",
                     "Content-Type": "application/json",
                 },
-                json={"model": self.settings.openrouter_model, "messages": messages},
+                json={"model": model, "messages": messages},
             )
             response.raise_for_status()
             data = response.json()

@@ -1,7 +1,11 @@
 """Unit tests for pure reminder logic — no network, no DB."""
 
+import asyncio
 from datetime import timedelta
 
+import pytest
+
+from ai.service import ai_service
 from models.entities import Reminder
 from services.reminder_service import reminder_service
 from utils.constants import ReminderStatus
@@ -44,6 +48,15 @@ def test_due_for_retry_waits_for_interval():
     assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=2)) is False
     # Due once the first interval has elapsed.
     assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=6)) is True
+
+
+def test_openrouter_refuses_paid_model_when_free_only(monkeypatch):
+    """Billing guard: a non-':free' model must never reach the API."""
+    monkeypatch.setattr(ai_service.settings, "openrouter_api_key", "sk-or-test")
+    monkeypatch.setattr(ai_service.settings, "openrouter_free_only", True)
+    monkeypatch.setattr(ai_service.settings, "openrouter_model", "openai/gpt-4o")
+    with pytest.raises(RuntimeError, match="ücretsiz"):
+        asyncio.run(ai_service._openrouter("merhaba", None))
 
 
 def test_due_for_retry_false_when_answered():

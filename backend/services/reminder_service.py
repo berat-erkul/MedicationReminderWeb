@@ -72,7 +72,12 @@ class ReminderService:
         session.refresh(reminder)
         return reminder
 
-    async def send_followup(self, session: Session, reminder: Reminder) -> Reminder:
+    async def repeat_push(self, session: Session, reminder: Reminder) -> Reminder:
+        """Repeat the PUSH reminder only (no extra WhatsApp message).
+
+        WhatsApp is sent once at dose time; afterwards, until the user marks the
+        dose taken, we re-send a mobile push every PUSH_REPEAT_MINUTES minutes.
+        """
         user = session.get(User, reminder.user_id)
         schedule = session.get(Schedule, reminder.schedule_id)
         if not user or not schedule:
@@ -80,25 +85,17 @@ class ReminderService:
 
         medicine = session.get(Medicine, schedule.medicine_id)
         medicine_name = medicine.name if medicine else "ilacınız"
-        text = (
-            f"Hatırlatma ({reminder.retry_count + 1}): "
-            f"{medicine_name} alındı mı?\n"
-            f"*e* / *aldım* veya *h* / *almadım*"
-        )
-        await whatsapp_client.send_text(user.phone, text)
 
-        now = utc_now()
-        reminder.retry_count += 1
-        reminder.last_retry_at = now
-        session.add(
-            Message(
-                user_id=user.id,
-                reminder_id=reminder.id,
-                direction=MessageDirection.OUTBOUND,
-                content=text,
-                phone=user.phone,
-            )
+        await push_notifier.push(
+            title=f"💊 Hatırlatma · {user.name}",
+            message=f"{medicine_name} henüz alınmadı. Lütfen alın ve uygulamadan 'Aldım' işaretleyin.",
+            user_id=user.id,
+            priority=4,
+            tags=["pill"],
         )
+
+        reminder.retry_count += 1
+        reminder.last_retry_at = utc_now()
         session.add(reminder)
         session.commit()
         session.refresh(reminder)
@@ -239,6 +236,10 @@ class ReminderService:
 
         return reminder
 
+    # Push reminders repeat every 5 minutes (hard-coded) until the dose is
+    # marked taken or REMINDER_MAX_RETRIES is reached.
+    PUSH_REPEAT_MINUTES = 5
+
     def due_for_retry(self, reminder: Reminder, now: datetime | None = None) -> bool:
         now = now or utc_now()
         if reminder.status != ReminderStatus.SENT:
@@ -246,16 +247,10 @@ class ReminderService:
         if reminder.retry_count >= self.settings.reminder_max_retries:
             return False
 
-        intervals = self.settings.retry_intervals
-        next_index = reminder.retry_count
-        if next_index >= len(intervals):
-            return False
-
-        wait_minutes = intervals[next_index]
         base = reminder.last_retry_at or reminder.sent_at
         if not base:
             return False
-        return now >= base + timedelta(minutes=wait_minutes)
+        return now >= base + timedelta(minutes=self.PUSH_REPEAT_MINUTES)
 
     async def mark_missed_if_exhausted(self, session: Session, reminder: Reminder) -> Reminder:
         if (

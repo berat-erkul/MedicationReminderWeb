@@ -36,8 +36,8 @@ async def job_retries() -> None:
         for reminder in open_reminders:
             try:
                 if reminder_service.due_for_retry(reminder):
-                    await reminder_service.send_followup(session, reminder)
-                    logger.info("Follow-up sent for reminder %s", reminder.id)
+                    await reminder_service.repeat_push(session, reminder)
+                    logger.info("Push repeat sent for reminder %s", reminder.id)
                 await reminder_service.mark_missed_if_exhausted(session, reminder)
             except Exception:  # noqa: BLE001
                 logger.exception("Retry/missed handling failed for %s", reminder.id)

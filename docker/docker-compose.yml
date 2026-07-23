@@ -15,7 +15,7 @@ services:
       NTFY_TOPIC: ${NTFY_TOPIC:-medication-reminders}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
     volumes:
-      - ../data/backend:/app/data
+      - ${DATA_ROOT:-../data}/backend:/app/data
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
@@ -38,7 +38,7 @@ services:
       BACKEND_WEBHOOK_URL: http://backend:8000/api/webhooks/whatsapp
       AUTH_DIR: /data/auth_info
     volumes:
-      - ../data/whatsapp:/data
+      - ${DATA_ROOT:-../data}/whatsapp:/data
     ports:
       - "${WHATSAPP_PORT:-3001}:3001"
 
@@ -70,7 +70,7 @@ services:
       # For internet exposure, set NTFY_AUTH_DEFAULT_ACCESS=deny-all and add tokens.
       NTFY_AUTH_DEFAULT_ACCESS: read-write
     volumes:
-      - ../data/ntfy:/var/cache/ntfy
+      - ${DATA_ROOT:-../data}/ntfy:/var/cache/ntfy
     ports:
       - "${NTFY_PORT:-8080}:80"
     healthcheck:
@@ -88,7 +88,7 @@ services:
     restart: unless-stopped
     profiles: ["ollama"]
     volumes:
-      - ../data/ollama:/root/.ollama
+      - ${DATA_ROOT:-../data}/ollama:/root/.ollama
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     # Uncomment on machines with NVIDIA GPU:

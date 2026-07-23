@@ -1,11 +1,12 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, col, func, select
 
 from ai.service import ai_service
 from database.session import get_session
-from models.entities import Message, Reminder, Schedule, User
+from models.entities import Medicine, Message, Reminder, Schedule, User
 from models.schemas import DashboardStats, IncomingWhatsAppMessage, MessageRead, ReminderRead
 from notify.push import push_notifier
 from services.reminder_service import reminder_service
@@ -56,6 +57,71 @@ async def whatsapp_webhook(
         content=payload.content,
         raw_payload=payload.raw_payload,
     )
+
+
+@router.post("/reminders/{reminder_id}/complete")
+async def complete_reminder(
+    reminder_id: int,
+    skipped: bool = Query(default=False, description="true → 'almadım', false → 'aldım'"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Mark a reminder taken/skipped from the mobile app. On 'taken' the user
+    also receives a WhatsApp confirmation receipt."""
+    reminder = session.get(Reminder, reminder_id)
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    reminder = await reminder_service.complete_by_app(session, reminder, skipped=skipped)
+    return {"ok": True, "reminder_id": reminder.id, "status": reminder.status.value}
+
+
+@router.get("/app/today")
+def app_today(user_id: int, session: Session = Depends(get_session)) -> dict:
+    """Bugünkü dozlar (mobil ana ekran): kişinin aktif programlarından bugüne
+    düşenler + her birinin hatırlatma durumu."""
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    tz = ZoneInfo(user.timezone or "Europe/Istanbul")
+    now_local = datetime.now(tz)
+    weekday = str(now_local.weekday())
+    day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_utc = day_start_local.astimezone(ZoneInfo("UTC"))
+    end_utc = (day_start_local + timedelta(days=1)).astimezone(ZoneInfo("UTC"))
+
+    schedules = session.exec(
+        select(Schedule)
+        .where(Schedule.user_id == user_id)
+        .where(Schedule.is_active == True)  # noqa: E712
+        .order_by(Schedule.time)
+    ).all()
+
+    todays_reminders = session.exec(
+        select(Reminder)
+        .where(Reminder.user_id == user_id)
+        .where(Reminder.scheduled_for >= start_utc)
+        .where(Reminder.scheduled_for < end_utc)
+    ).all()
+
+    doses = []
+    for sched in schedules:
+        if sched.days_of_week:
+            allowed = {d.strip() for d in sched.days_of_week.split(",") if d.strip()}
+            if weekday not in allowed:
+                continue
+        medicine = session.get(Medicine, sched.medicine_id)
+        reminder = next((r for r in todays_reminders if r.schedule_id == sched.id), None)
+        doses.append({
+            "schedule_id": sched.id,
+            "medicine_id": sched.medicine_id,
+            "medicine_name": medicine.name if medicine else "Bilinmiyor",
+            "dosage": medicine.dosage if medicine else "",
+            "time": str(sched.time)[:5],
+            "reminder_id": reminder.id if reminder else None,
+            "status": reminder.status.value if reminder else "upcoming",
+        })
+
+    return {"date": now_local.strftime("%Y-%m-%d"), "user_id": user_id, "doses": doses}
 
 
 @router.post("/notify/test")

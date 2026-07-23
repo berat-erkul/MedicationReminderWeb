@@ -183,6 +183,62 @@ class ReminderService:
         await whatsapp_client.send_text(user.phone, ack)
         return {"ok": True, "reminder_id": reminder.id, "status": status.value}
 
+    async def complete_by_app(
+        self, session: Session, reminder: Reminder, *, skipped: bool = False
+    ) -> Reminder:
+        """Mark a reminder taken/skipped from the mobile app.
+
+        Stops further retries (status leaves SENT). On 'taken' also sends a
+        WhatsApp confirmation receipt to the user — this is the extra message
+        that only the app path triggers, not the WhatsApp reply path.
+        """
+        user = session.get(User, reminder.user_id)
+        schedule = session.get(Schedule, reminder.schedule_id)
+        medicine = session.get(Medicine, schedule.medicine_id) if schedule else None
+
+        reminder.status = ReminderStatus.SKIPPED if skipped else ReminderStatus.COMPLETED
+        reminder.answered_at = utc_now()
+        session.add(reminder)
+        session.commit()
+        session.refresh(reminder)
+
+        name = user.name if user else f"#{reminder.user_id}"
+        med_name = medicine.name if medicine else "ilaç"
+
+        if skipped:
+            await push_notifier.push(
+                title=f"⏭️ İlaç atlandı · {name}",
+                message=f"{name} {med_name} ilacını uygulamadan 'almadım' işaretledi.",
+                user_id=reminder.user_id,
+                priority=4,
+                tags=["x"],
+            )
+            return reminder
+
+        await push_notifier.push(
+            title=f"✅ İlaç alındı · {name}",
+            message=f"{name} {med_name} ilacını uygulamadan aldı olarak işaretledi.",
+            user_id=reminder.user_id,
+            priority=2,
+            tags=["white_check_mark"],
+        )
+
+        if user:
+            tz = ZoneInfo(user.timezone or self.settings.timezone)
+            base = reminder.scheduled_for
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=ZoneInfo("UTC"))
+            local = base.astimezone(tz)
+            when = local.strftime("%d.%m.%Y %H:%M")
+            dosage = f" ({medicine.dosage})" if medicine and medicine.dosage else ""
+            text = (
+                f"{name}, {med_name}{dosage} ilacınızı {when} tarihinde/saatinde "
+                f"aldığınızı işaretlediniz. Sağlıkla kalın. 🌿"
+            )
+            await whatsapp_client.send_text(user.phone, text)
+
+        return reminder
+
     def due_for_retry(self, reminder: Reminder, now: datetime | None = None) -> bool:
         now = now or utc_now()
         if reminder.status != ReminderStatus.SENT:

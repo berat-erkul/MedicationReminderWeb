@@ -79,10 +79,14 @@ services:
       timeout: 5s
       retries: 5
 
+  # Yerel AI — sadece AI_PROVIDER=ollama kullanacaksan gerekli.
+  # OpenRouter (varsayılan) ile çalışırken bu servis HİÇ başlatılmaz.
+  # Yerel AI istersen: docker compose --profile ollama up -d
   ollama:
     image: ollama/ollama:latest
     container_name: med-ollama
     restart: unless-stopped
+    profiles: ["ollama"]
     volumes:
       - ../data/ollama:/root/.ollama
     ports:

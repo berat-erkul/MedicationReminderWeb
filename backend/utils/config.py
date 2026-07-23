@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.2"
     openrouter_api_key: str | None = None
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    openrouter_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
     # Safety: refuse any non-"":free"" model so a paid model can never bill you.
     openrouter_free_only: bool = True
     ai_provider: str = "ollama"  # ollama | openrouter

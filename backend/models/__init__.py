@@ -1,7 +1,6 @@
 from models.entities import Medicine, Message, Reminder, Schedule, User
 from models.schemas import (
     DashboardStats,
-    IncomingWhatsAppMessage,
     MedicineCreate,
     MedicineRead,
     MedicineUpdate,
@@ -32,6 +31,5 @@ __all__ = [
     "ScheduleRead",
     "ReminderRead",
     "MessageRead",
-    "IncomingWhatsAppMessage",
     "DashboardStats",
 ]

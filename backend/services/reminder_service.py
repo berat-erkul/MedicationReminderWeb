@@ -1,4 +1,9 @@
-"""Core reminder business logic: send, parse replies, retry, mark missed."""
+"""Core reminder business logic: send, parse replies, retry, mark missed.
+
+Messaging channel: Telegram Bot API. Reminders carry one-tap 'Aldım / Almadım'
+inline buttons; users can also reply with text. 'Almadım' does NOT stop the
+reminders — the 5-minute push cycle keeps going until the dose is taken.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, col, select
 
+from messaging.telegram import TelegramClient, telegram_client
 from models.entities import Medicine, Message, Reminder, Schedule, User
 from notify.push import push_notifier
 from utils.config import get_settings
@@ -17,10 +23,12 @@ from utils.constants import (
     ReminderStatus,
 )
 from utils.helpers import normalize_phone, normalize_reply, utc_now
-from whatsapp.client import whatsapp_client
 
 
 class ReminderService:
+    # Push reminders repeat every 5 minutes until taken or max retries reached.
+    PUSH_REPEAT_MINUTES = 5
+
     def __init__(self) -> None:
         self.settings = get_settings()
 
@@ -29,8 +37,7 @@ class ReminderService:
         return (
             f"Merhaba {user.name},\n\n"
             f"💊 {medicine.name}{dosage} zamanı geldi.\n\n"
-            f"Aldıysanız *e* veya *aldım*\n"
-            f"Almadıysanız *h* veya *almadım* yazın."
+            f"Aldıysanız ✅ Aldım, almadıysanız ❌ Almadım butonuna basın."
         )
 
     async def send_reminder(self, session: Session, reminder: Reminder) -> Reminder:
@@ -44,20 +51,21 @@ class ReminderService:
             return reminder
 
         text = self.build_message(user, medicine)
-        await whatsapp_client.send_text(user.phone, text)
+        await telegram_client.send_message(
+            user.phone, text, buttons=TelegramClient.take_skip_buttons(reminder.id)
+        )
 
         dosage = f" ({medicine.dosage})" if medicine.dosage else ""
         await push_notifier.push(
             title=f"💊 İlaç zamanı · {user.name}",
-            message=f"{medicine.name}{dosage} zamanı geldi. WhatsApp'tan soruldu.",
+            message=f"{medicine.name}{dosage} zamanı geldi.",
             user_id=user.id,
             priority=3,
             tags=["pill"],
         )
 
-        now = utc_now()
         reminder.status = ReminderStatus.SENT
-        reminder.sent_at = now
+        reminder.sent_at = utc_now()
         session.add(
             Message(
                 user_id=user.id,
@@ -73,10 +81,9 @@ class ReminderService:
         return reminder
 
     async def repeat_push(self, session: Session, reminder: Reminder) -> Reminder:
-        """Repeat the PUSH reminder only (no extra WhatsApp message).
+        """Repeat the mobile PUSH only (Telegram message is sent once at dose time).
 
-        WhatsApp is sent once at dose time; afterwards, until the user marks the
-        dose taken, we re-send a mobile push every PUSH_REPEAT_MINUTES minutes.
+        Runs every PUSH_REPEAT_MINUTES until the dose is marked taken.
         """
         user = session.get(User, reminder.user_id)
         schedule = session.get(Schedule, reminder.schedule_id)
@@ -88,7 +95,7 @@ class ReminderService:
 
         await push_notifier.push(
             title=f"💊 Hatırlatma · {user.name}",
-            message=f"{medicine_name} henüz alınmadı. Lütfen alın ve uygulamadan 'Aldım' işaretleyin.",
+            message=f"{medicine_name} henüz alınmadı. Lütfen alın ve 'Aldım' işaretleyin.",
             user_id=user.id,
             priority=4,
             tags=["pill"],
@@ -118,22 +125,89 @@ class ReminderService:
         )
         return session.exec(stmt).first()
 
+    async def mark_reminder(
+        self, session: Session, reminder: Reminder, *, taken: bool
+    ) -> Reminder:
+        """Central mark logic used by Telegram (buttons/text) and the mobile app.
+
+        taken=True  → completed, reminders stop, confirmation sent.
+        taken=False → 'almadım': reminders KEEP going (reset 5-min cycle).
+        """
+        user = session.get(User, reminder.user_id)
+        schedule = session.get(Schedule, reminder.schedule_id)
+        medicine = session.get(Medicine, schedule.medicine_id) if schedule else None
+        name = user.name if user else f"#{reminder.user_id}"
+        med_name = medicine.name if medicine else "ilaç"
+
+        if taken:
+            reminder.status = ReminderStatus.COMPLETED
+            reminder.answered_at = utc_now()
+            session.add(reminder)
+            session.commit()
+            session.refresh(reminder)
+
+            await push_notifier.push(
+                title=f"✅ İlaç alındı · {name}",
+                message=f"{name} {med_name} ilacını aldı olarak işaretledi.",
+                user_id=reminder.user_id,
+                priority=2,
+                tags=["white_check_mark"],
+            )
+            if user:
+                tz = ZoneInfo(user.timezone or self.settings.timezone)
+                base = reminder.scheduled_for
+                if base.tzinfo is None:
+                    base = base.replace(tzinfo=ZoneInfo("UTC"))
+                when = base.astimezone(tz).strftime("%d.%m.%Y %H:%M")
+                dosage = f" ({medicine.dosage})" if medicine and medicine.dosage else ""
+                await telegram_client.send_message(
+                    user.phone,
+                    f"{med_name}{dosage} ilacınızı {when} tarihinde/saatinde aldınız. "
+                    f"Sağlıkla kalın. 🌿",
+                )
+            return reminder
+
+        # 'almadım' → keep reminding: reactivate and restart the 5-min cycle.
+        reminder.status = ReminderStatus.SENT
+        reminder.retry_count = 0
+        reminder.last_retry_at = utc_now()
+        reminder.answered_at = None
+        session.add(reminder)
+        session.commit()
+        session.refresh(reminder)
+
+        await push_notifier.push(
+            title=f"⏰ Hatırlatma sürüyor · {name}",
+            message=f"{name} henüz {med_name} almadı; hatırlatmalar devam ediyor.",
+            user_id=reminder.user_id,
+            priority=4,
+            tags=["hourglass"],
+        )
+        if user:
+            await telegram_client.send_message(
+                user.phone,
+                f"Tamam, {med_name} birazdan tekrar hatırlatılacak. "
+                f"Aldığınızda ✅ Aldım butonuna basın.",
+            )
+        return reminder
+
     async def handle_incoming(
         self,
         session: Session,
-        phone: str,
+        chat_id: str,
         content: str,
         raw_payload: str | None = None,
     ) -> dict:
-        phone = normalize_phone(phone)
-        user = session.exec(select(User).where(User.phone == phone)).first()
+        """Handle a text reply from Telegram."""
+        chat = normalize_phone(chat_id)
+        user = session.exec(select(User).where(User.phone == chat)).first()
 
         session.add(
             Message(
                 user_id=user.id if user else None,
                 direction=MessageDirection.INBOUND,
                 content=content,
-                phone=phone,
+                phone=chat,
                 raw_payload=raw_payload,
             )
         )
@@ -144,101 +218,56 @@ class ReminderService:
 
         status = self.classify_reply(content)
         if status is None:
-            await whatsapp_client.send_text(
+            await telegram_client.send_message(
                 user.phone,
-                "Anlayamadım. Lütfen *e* / *aldım* veya *h* / *almadım* yazın.",
+                "Anlayamadım. 'Aldım' / 'Almadım' yazın ya da mesajdaki butonları kullanın.",
             )
             return {"ok": False, "reason": "unrecognized_reply"}
 
         reminder = self.find_open_reminder(session, user.id)
         if not reminder:
+            await telegram_client.send_message(user.phone, "Şu an bekleyen bir hatırlatma yok.")
             return {"ok": False, "reason": "no_open_reminder"}
 
-        reminder.status = status
-        reminder.answered_at = utc_now()
-        session.add(reminder)
+        await self.mark_reminder(session, reminder, taken=(status == ReminderStatus.COMPLETED))
+        return {"ok": True, "reminder_id": reminder.id}
+
+    async def handle_callback(self, session: Session, chat_id: str, data: str) -> dict:
+        """Handle an inline-button tap (callback_data 'take:<id>' / 'skip:<id>')."""
+        chat = normalize_phone(chat_id)
+        user = session.exec(select(User).where(User.phone == chat)).first()
+        if not user:
+            return {"ok": False, "reason": "unknown_user"}
+
+        try:
+            action, rid = data.split(":", 1)
+            reminder_id = int(rid)
+        except (ValueError, AttributeError):
+            return {"ok": False, "reason": "bad_callback"}
+
+        reminder = session.get(Reminder, reminder_id)
+        if not reminder or reminder.user_id != user.id:
+            return {"ok": False, "reason": "not_found"}
+
+        session.add(
+            Message(
+                user_id=user.id,
+                reminder_id=reminder.id,
+                direction=MessageDirection.INBOUND,
+                content=f"[buton] {action}",
+                phone=chat,
+            )
+        )
         session.commit()
 
-        if status == ReminderStatus.COMPLETED:
-            await push_notifier.push(
-                title=f"✅ İlaç alındı · {user.name}",
-                message=f"{user.name} ilacını aldığını bildirdi.",
-                user_id=user.id,
-                priority=2,
-                tags=["white_check_mark"],
-            )
-        else:
-            await push_notifier.push(
-                title=f"⏭️ İlaç atlandı · {user.name}",
-                message=f"{user.name} ilacını almadığını bildirdi.",
-                user_id=user.id,
-                priority=4,
-                tags=["x"],
-            )
-
-        ack = "Harika, kaydettim. ✅" if status == ReminderStatus.COMPLETED else "Tamam, not ettim."
-        await whatsapp_client.send_text(user.phone, ack)
-        return {"ok": True, "reminder_id": reminder.id, "status": status.value}
+        await self.mark_reminder(session, reminder, taken=(action == "take"))
+        return {"ok": True, "reminder_id": reminder.id, "action": action}
 
     async def complete_by_app(
         self, session: Session, reminder: Reminder, *, skipped: bool = False
     ) -> Reminder:
-        """Mark a reminder taken/skipped from the mobile app.
-
-        Stops further retries (status leaves SENT). On 'taken' also sends a
-        WhatsApp confirmation receipt to the user — this is the extra message
-        that only the app path triggers, not the WhatsApp reply path.
-        """
-        user = session.get(User, reminder.user_id)
-        schedule = session.get(Schedule, reminder.schedule_id)
-        medicine = session.get(Medicine, schedule.medicine_id) if schedule else None
-
-        reminder.status = ReminderStatus.SKIPPED if skipped else ReminderStatus.COMPLETED
-        reminder.answered_at = utc_now()
-        session.add(reminder)
-        session.commit()
-        session.refresh(reminder)
-
-        name = user.name if user else f"#{reminder.user_id}"
-        med_name = medicine.name if medicine else "ilaç"
-
-        if skipped:
-            await push_notifier.push(
-                title=f"⏭️ İlaç atlandı · {name}",
-                message=f"{name} {med_name} ilacını uygulamadan 'almadım' işaretledi.",
-                user_id=reminder.user_id,
-                priority=4,
-                tags=["x"],
-            )
-            return reminder
-
-        await push_notifier.push(
-            title=f"✅ İlaç alındı · {name}",
-            message=f"{name} {med_name} ilacını uygulamadan aldı olarak işaretledi.",
-            user_id=reminder.user_id,
-            priority=2,
-            tags=["white_check_mark"],
-        )
-
-        if user:
-            tz = ZoneInfo(user.timezone or self.settings.timezone)
-            base = reminder.scheduled_for
-            if base.tzinfo is None:
-                base = base.replace(tzinfo=ZoneInfo("UTC"))
-            local = base.astimezone(tz)
-            when = local.strftime("%d.%m.%Y %H:%M")
-            dosage = f" ({medicine.dosage})" if medicine and medicine.dosage else ""
-            text = (
-                f"{name}, {med_name}{dosage} ilacınızı {when} tarihinde/saatinde "
-                f"aldığınızı işaretlediniz. Sağlıkla kalın. 🌿"
-            )
-            await whatsapp_client.send_text(user.phone, text)
-
-        return reminder
-
-    # Push reminders repeat every 5 minutes (hard-coded) until the dose is
-    # marked taken or REMINDER_MAX_RETRIES is reached.
-    PUSH_REPEAT_MINUTES = 5
+        """Mobile app 'Aldım' (skipped=False) / 'Almadım' (skipped=True)."""
+        return await self.mark_reminder(session, reminder, taken=not skipped)
 
     def due_for_retry(self, reminder: Reminder, now: datetime | None = None) -> bool:
         now = now or utc_now()
@@ -273,9 +302,9 @@ class ReminderService:
                 tags=["warning"],
             )
 
-            if self.settings.admin_phone:
-                await whatsapp_client.send_text(
-                    self.settings.admin_phone,
+            if self.settings.admin_chat_id:
+                await telegram_client.send_message(
+                    self.settings.admin_chat_id,
                     f"⚠️ {name} için hatırlatma yanıtlanmadı (missed).",
                 )
         return reminder
@@ -307,7 +336,6 @@ class ReminderService:
                 microsecond=0,
             ).astimezone(ZoneInfo("UTC"))
 
-            # Avoid duplicate for same schedule+minute
             existing = session.exec(
                 select(Reminder)
                 .where(Reminder.schedule_id == schedule.id)

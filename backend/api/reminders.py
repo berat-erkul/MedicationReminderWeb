@@ -7,7 +7,7 @@ from sqlmodel import Session, col, func, select
 from ai.service import ai_service
 from database.session import get_session
 from models.entities import Medicine, Message, Reminder, Schedule, User
-from models.schemas import DashboardStats, IncomingWhatsAppMessage, MessageRead, ReminderRead
+from models.schemas import DashboardStats, MessageRead, ReminderRead
 from notify.push import push_notifier
 from services.reminder_service import reminder_service
 from utils.config import get_settings
@@ -44,19 +44,6 @@ def list_messages(
         stmt = stmt.where(Message.user_id == user_id)
     stmt = stmt.order_by(col(Message.timestamp).desc()).limit(limit)
     return list(session.exec(stmt).all())
-
-
-@router.post("/webhooks/whatsapp")
-async def whatsapp_webhook(
-    payload: IncomingWhatsAppMessage,
-    session: Session = Depends(get_session),
-) -> dict:
-    return await reminder_service.handle_incoming(
-        session,
-        phone=payload.phone,
-        content=payload.content,
-        raw_payload=payload.raw_payload,
-    )
 
 
 @router.post("/reminders/{reminder_id}/complete")

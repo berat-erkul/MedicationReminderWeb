@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api import admin, medicines, reminders, schedules, users
 from database.session import init_db
+from messaging.poller import start_polling, stop_polling
 from scheduler.jobs import start_scheduler, stop_scheduler
 from utils.config import get_settings
 
@@ -18,8 +19,10 @@ settings = get_settings()
 async def lifespan(_: FastAPI):
     init_db()
     start_scheduler()
+    start_polling()
     logger.info("Application started")
     yield
+    stop_polling()
     stop_scheduler()
     logger.info("Application stopped")
 

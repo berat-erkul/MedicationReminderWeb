@@ -113,13 +113,6 @@ class MessageRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class IncomingWhatsAppMessage(BaseModel):
-    phone: str
-    content: str
-    timestamp: Optional[datetime] = None
-    raw_payload: Optional[str] = None
-
-
 class DashboardStats(BaseModel):
     total_users: int
     active_schedules: int

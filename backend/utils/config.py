@@ -22,7 +22,11 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/medication.db"
 
-    whatsapp_service_url: str = "http://whatsapp:3001"
+    # Telegram bot (messaging channel)
+    telegram_bot_token: str | None = None
+    telegram_api_base: str = "https://api.telegram.org"
+    admin_chat_id: str | None = None  # optional: notify a caregiver on missed
+
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.2"
     openrouter_api_key: str | None = None
@@ -31,9 +35,7 @@ class Settings(BaseSettings):
     openrouter_free_only: bool = True
     ai_provider: str = "ollama"  # ollama | openrouter
 
-    reminder_retry_intervals_minutes: str = "5,15,30"
     reminder_max_retries: int = 3
-    admin_phone: str | None = None
 
     # Push notifications (ntfy → mobile app)
     push_enabled: bool = True
@@ -43,10 +45,6 @@ class Settings(BaseSettings):
 
     timezone: str = "Europe/Istanbul"
     cors_origins: str = "http://localhost:3000,http://frontend:3000"
-
-    @property
-    def retry_intervals(self) -> list[int]:
-        return [int(x.strip()) for x in self.reminder_retry_intervals_minutes.split(",") if x.strip()]
 
     @property
     def cors_origin_list(self) -> list[str]:

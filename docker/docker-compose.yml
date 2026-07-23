@@ -9,7 +9,7 @@ services:
       - ../.env
     environment:
       DATABASE_URL: sqlite:////app/data/medication.db
-      WHATSAPP_SERVICE_URL: http://whatsapp:3001
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OLLAMA_BASE_URL: http://ollama:11434
       NTFY_BASE_URL: http://ntfy:80
       NTFY_TOPIC: ${NTFY_TOPIC:-medication-reminders}
@@ -24,23 +24,7 @@ services:
       timeout: 5s
       retries: 5
     depends_on:
-      - whatsapp
       - ntfy
-
-  whatsapp:
-    build:
-      context: ../whatsapp
-      dockerfile: Dockerfile
-    container_name: med-whatsapp
-    restart: unless-stopped
-    environment:
-      PORT: 3001
-      BACKEND_WEBHOOK_URL: http://backend:8000/api/webhooks/whatsapp
-      AUTH_DIR: /data/auth_info
-    volumes:
-      - ${DATA_ROOT:-../data}/whatsapp:/data
-    ports:
-      - "${WHATSAPP_PORT:-3001}:3001"
 
   frontend:
     build:

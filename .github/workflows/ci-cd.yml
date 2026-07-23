@@ -54,6 +54,11 @@ jobs:
     runs-on: [self-hosted, home-server]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Docker writes root-owned files under data/; without this, checkout's
+          # git-clean tries (and fails) to delete them. data/ is gitignored, so
+          # skipping the clean is safe.
+          clean: false
       - name: Restore persistent .env
         run: |
           # Secrets live on the server, outside the repo checkout.

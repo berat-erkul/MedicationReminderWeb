@@ -38,9 +38,8 @@ async def job_retries() -> None:
                 if reminder_service.due_for_retry(reminder):
                     await reminder_service.repeat_push(session, reminder)
                     logger.info("Push repeat sent for reminder %s", reminder.id)
-                await reminder_service.mark_missed_if_exhausted(session, reminder)
             except Exception:  # noqa: BLE001
-                logger.exception("Retry/missed handling failed for %s", reminder.id)
+                logger.exception("Retry handling failed for %s", reminder.id)
 
 
 def start_scheduler() -> None:

@@ -26,8 +26,11 @@ from utils.helpers import normalize_phone, normalize_reply, utc_now
 
 
 class ReminderService:
-    # Push reminders repeat every 5 minutes until taken or max retries reached.
+    # Push reminders repeat every 5 minutes until the dose is taken.
     PUSH_REPEAT_MINUTES = 5
+    # Safety cap so a never-answered reminder doesn't ping literally forever
+    # (288 * 5 min = 24h). In practice it stops as soon as 'Aldım' is marked.
+    MAX_REPEATS = 288
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -106,6 +109,14 @@ class ReminderService:
         session.add(reminder)
         session.commit()
         session.refresh(reminder)
+
+        # One-time heads-up to a caregiver after several unanswered repeats
+        # (reminders keep going regardless).
+        if reminder.retry_count == self.settings.reminder_max_retries and self.settings.admin_chat_id:
+            await telegram_client.send_message(
+                self.settings.admin_chat_id,
+                f"⚠️ {user.name} {medicine_name} ilacını hâlâ almadı (yanıt bekleniyor).",
+            )
         return reminder
 
     def classify_reply(self, content: str) -> ReminderStatus | None:
@@ -271,43 +282,16 @@ class ReminderService:
 
     def due_for_retry(self, reminder: Reminder, now: datetime | None = None) -> bool:
         now = now or utc_now()
+        # Repeats only stop when the dose leaves SENT (i.e. marked 'Aldım').
         if reminder.status != ReminderStatus.SENT:
             return False
-        if reminder.retry_count >= self.settings.reminder_max_retries:
+        if reminder.retry_count >= self.MAX_REPEATS:
             return False
 
         base = reminder.last_retry_at or reminder.sent_at
         if not base:
             return False
         return now >= base + timedelta(minutes=self.PUSH_REPEAT_MINUTES)
-
-    async def mark_missed_if_exhausted(self, session: Session, reminder: Reminder) -> Reminder:
-        if (
-            reminder.status == ReminderStatus.SENT
-            and reminder.retry_count >= self.settings.reminder_max_retries
-        ):
-            reminder.status = ReminderStatus.MISSED
-            session.add(reminder)
-            session.commit()
-            session.refresh(reminder)
-
-            user = session.get(User, reminder.user_id)
-            name = user.name if user else f"#{reminder.user_id}"
-
-            await push_notifier.push(
-                title=f"⚠️ İlaç kaçırıldı · {name}",
-                message=f"{name} hatırlatmalara yanıt vermedi. Lütfen kontrol edin.",
-                user_id=reminder.user_id,
-                priority=5,
-                tags=["warning"],
-            )
-
-            if self.settings.admin_chat_id:
-                await telegram_client.send_message(
-                    self.settings.admin_chat_id,
-                    f"⚠️ {name} için hatırlatma yanıtlanmadı (missed).",
-                )
-        return reminder
 
     def create_due_reminders(self, session: Session) -> list[Reminder]:
         """Create Reminder rows for schedules that are due in the current minute."""

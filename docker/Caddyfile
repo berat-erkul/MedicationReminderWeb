@@ -1,0 +1,19 @@
+# Single entrypoint behind Tailscale Funnel.
+# TLS is terminated by Funnel, so Caddy serves plain HTTP here.
+{
+	auto_https off
+}
+
+:8090 {
+	# ntfy under /ntfy/* (prefix stripped); streaming needs unbuffered flush.
+	handle_path /ntfy/* {
+		reverse_proxy ntfy:80 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else → FastAPI backend (/api/..., /health).
+	handle {
+		reverse_proxy backend:8000
+	}
+}

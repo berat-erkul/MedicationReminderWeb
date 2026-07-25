@@ -50,6 +50,7 @@ services:
       NTFY_BASE_URL: http://ntfy:80
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_CACHE_DURATION: 48h
+      NTFY_BEHIND_PROXY: "true"
       # Home LAN default: anyone on the network can read/write topics.
       # For internet exposure, set NTFY_AUTH_DEFAULT_ACCESS=deny-all and add tokens.
       NTFY_AUTH_DEFAULT_ACCESS: read-write
@@ -62,6 +63,20 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
+  # Reverse proxy — tek giriş noktası (API + ntfy). Tailscale Funnel bu portu
+  # https://<host>.<tailnet>.ts.net olarak dışarı açar → uzaktan erişim.
+  caddy:
+    image: caddy:2-alpine
+    container_name: med-caddy
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "${CADDY_PORT:-8090}:8090"
+    depends_on:
+      - backend
+      - ntfy
 
   # Yerel AI — sadece AI_PROVIDER=ollama kullanacaksan gerekli.
   # OpenRouter (varsayılan) ile çalışırken bu servis HİÇ başlatılmaz.

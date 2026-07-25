@@ -26,11 +26,11 @@ from utils.helpers import normalize_phone, normalize_reply, utc_now
 
 
 class ReminderService:
-    # Push reminders repeat every 5 minutes until the dose is taken.
-    PUSH_REPEAT_MINUTES = 5
+    # Push reminders repeat every 10 minutes until the dose is taken.
+    PUSH_REPEAT_MINUTES = 10
     # Safety cap so a never-answered reminder doesn't ping literally forever
-    # (288 * 5 min = 24h). In practice it stops as soon as 'Aldım' is marked.
-    MAX_REPEATS = 288
+    # (144 * 10 min = 24h). In practice it stops as soon as 'Aldım' is marked.
+    MAX_REPEATS = 144
 
     def __init__(self) -> None:
         self.settings = get_settings()

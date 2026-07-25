@@ -44,10 +44,10 @@ def test_due_for_retry_waits_for_interval():
         sent_at=now,
         retry_count=0,
     )
-    # First interval is 5 min by default — not due right after sending.
-    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=2)) is False
-    # Due once the first interval has elapsed.
-    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=6)) is True
+    # Repeats every 10 min — not due right after sending.
+    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=6)) is False
+    # Due once the interval has elapsed.
+    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=11)) is True
 
 
 def test_openrouter_refuses_paid_model_when_free_only(monkeypatch):

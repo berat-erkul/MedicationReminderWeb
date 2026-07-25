@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import admin, medicines, reminders, schedules, users
+from api import admin, auth, medicines, reminders, schedules, users
 from database.session import init_db
 from messaging.poller import start_polling, stop_polling
 from scheduler.jobs import start_scheduler, stop_scheduler
@@ -41,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(medicines.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")

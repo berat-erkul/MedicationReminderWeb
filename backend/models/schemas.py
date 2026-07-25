@@ -113,6 +113,22 @@ class MessageRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=3, max_length=40)  # Telegram chat_id
+    timezone: str = "Europe/Istanbul"
+
+
+class RegisterResponse(BaseModel):
+    id: int
+    name: str
+    phone: str
+    timezone: str
+    access_token: str
+
+    model_config = {"from_attributes": True}
+
+
 class DashboardStats(BaseModel):
     total_users: int
     active_schedules: int

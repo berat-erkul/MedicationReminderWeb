@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
@@ -21,7 +23,12 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)) ->
     if existing:
         raise HTTPException(status_code=409, detail="Phone already registered")
 
-    user = User(name=payload.name, phone=phone, timezone=payload.timezone)
+    user = User(
+        name=payload.name,
+        phone=phone,
+        timezone=payload.timezone,
+        access_token=secrets.token_urlsafe(24),
+    )
     session.add(user)
     session.commit()
     session.refresh(user)

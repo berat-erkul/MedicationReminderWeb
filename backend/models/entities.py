@@ -13,10 +13,16 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     phone: str = Field(unique=True, index=True)
+    # Per-device access token — the app stores this and scopes all data to it.
+    access_token: Optional[str] = Field(default=None, index=True)
     timezone: str = Field(default="Europe/Istanbul")
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=utc_now)
 
+    medicines: list["Medicine"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     schedules: list["Schedule"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
@@ -35,11 +41,13 @@ class Medicine(SQLModel, table=True):
     __tablename__ = "medicines"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     name: str = Field(index=True)
     dosage: str = Field(default="")
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
 
+    user: Optional["User"] = Relationship(back_populates="medicines")
     schedules: list["Schedule"] = Relationship(
         back_populates="medicine",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},

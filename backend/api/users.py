@@ -3,13 +3,15 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from api.deps import require_admin
 from database.session import get_session
 from messaging.telegram import telegram_client
 from models.entities import User
 from models.schemas import UserCreate, UserRead, UserUpdate
 from utils.helpers import normalize_phone
 
-router = APIRouter(prefix="/users", tags=["users"])
+# System-wide user management — admin-gated (X-Admin-Token) when ADMIN_TOKEN is set.
+router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=list[UserRead])

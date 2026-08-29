@@ -5,12 +5,13 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, col, func, select
 
+from api.deps import require_admin
 from database.session import get_session
 from models.entities import Medicine, Message, Reminder, Schedule, User
 from utils.constants import MessageDirection, ReminderStatus
 from utils.helpers import utc_now
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/overview")

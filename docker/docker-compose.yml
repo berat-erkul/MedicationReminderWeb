@@ -13,11 +13,16 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       NTFY_BASE_URL: http://ntfy:80
       NTFY_TOPIC: ${NTFY_TOPIC:-medication-reminders}
+      NTFY_TOKEN: ${NTFY_TOKEN:-}
+      REGISTRATION_SECRET: ${REGISTRATION_SECRET:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
     volumes:
       - ${DATA_ROOT:-../data}/backend:/app/data
+    # Loopback-only: on a VPS this port is NOT publicly reachable — traffic comes
+    # in through cloudflared → caddy. On the Mac, localhost:8000 still works.
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -32,12 +37,14 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     container_name: med-frontend
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    # Operator-only panel — loopback. Reach it over an SSH tunnel on the VPS.
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
 
@@ -47,40 +54,57 @@ services:
     restart: unless-stopped
     command: serve
     environment:
-      NTFY_BASE_URL: http://ntfy:80
+      NTFY_BASE_URL: ${NTFY_PUBLIC_URL:-http://ntfy:80}
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_CACHE_DURATION: 48h
       NTFY_BEHIND_PROXY: "true"
-      # Home LAN default: anyone on the network can read/write topics.
-      # For internet exposure, set NTFY_AUTH_DEFAULT_ACCESS=deny-all and add tokens.
-      NTFY_AUTH_DEFAULT_ACCESS: read-write
+      NTFY_ENABLE_LOGIN: "true"
+      NTFY_AUTH_FILE: /var/cache/ntfy/auth.db
+      # deny-all by default → public deploy needs a token (scripts/ntfy-setup.sh).
+      # Local dev sets NTFY_AUTH_DEFAULT_ACCESS=read-write in .env to skip auth.
+      NTFY_AUTH_DEFAULT_ACCESS: ${NTFY_AUTH_DEFAULT_ACCESS:-deny-all}
     volumes:
       - ${DATA_ROOT:-../data}/ntfy:/var/cache/ntfy
     ports:
-      - "${NTFY_PORT:-8080}:80"
+      - "127.0.0.1:${NTFY_PORT:-8080}:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:80/v1/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
 
-  # Reverse proxy — tek giriş noktası (API + ntfy). Tailscale Funnel bu portu
-  # https://<host>.<tailnet>.ts.net olarak dışarı açar → uzaktan erişim.
+  # --- Uzak erişim (VPS): docker compose --profile remote up -d ---
+  # Lokalde çalışmaz; backend/frontend/ntfy zaten localhost'ta yayında.
+
+  # Tek iç giriş noktası: /ntfy/* → ntfy, geri kalan → backend.
   caddy:
     image: caddy:2-alpine
     container_name: med-caddy
     restart: unless-stopped
+    profiles: ["remote"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
-      - "${CADDY_PORT:-8090}:8090"
+      - "127.0.0.1:${CADDY_PORT:-8090}:8090"
     depends_on:
       - backend
       - ntfy
 
-  # Yerel AI — sadece AI_PROVIDER=ollama kullanacaksan gerekli.
-  # OpenRouter (varsayılan) ile çalışırken bu servis HİÇ başlatılmaz.
-  # Yerel AI istersen: docker compose --profile ollama up -d
+  # Cloudflare Tunnel: VPS'ten Cloudflare'e giden tek yönlü bağlantı, hiç port
+  # açmaz. Token'ı Cloudflare Zero Trust panelinden al (Networks → Tunnels).
+  # Hostname → service yönlendirmesi de o panelde: <hostname> → http://caddy:8090
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: med-cloudflared
+    restart: unless-stopped
+    profiles: ["remote"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - caddy
+
+  # Yerel AI — sadece AI_PROVIDER=ollama kullanacaksan: docker compose --profile ollama up -d
   ollama:
     image: ollama/ollama:latest
     container_name: med-ollama
@@ -89,15 +113,7 @@ services:
     volumes:
       - ${DATA_ROOT:-../data}/ollama:/root/.ollama
     ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    # Uncomment on machines with NVIDIA GPU:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
 
 networks:
   default:

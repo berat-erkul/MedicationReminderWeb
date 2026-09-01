@@ -291,6 +291,11 @@ class ReminderService:
         base = reminder.last_retry_at or reminder.sent_at
         if not base:
             return False
+        # SQLite datetime'ları tz-naive döner; UTC kabul edip aware'a çevir.
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=ZoneInfo("UTC"))
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=ZoneInfo("UTC"))
         return now >= base + timedelta(minutes=self.PUSH_REPEAT_MINUTES)
 
     def create_due_reminders(self, session: Session) -> list[Reminder]:

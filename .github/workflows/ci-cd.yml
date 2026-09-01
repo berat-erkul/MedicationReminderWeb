@@ -48,33 +48,26 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   deploy:
-    name: Deploy to home-server
+    name: Deploy to VPS (SSH)
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: [self-hosted, home-server]
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: SSH → pull & redeploy
+        uses: appleboy/ssh-action@v1
         with:
-          # Docker writes root-owned files under data/; without this, checkout's
-          # git-clean tries (and fails) to delete them. data/ is gitignored, so
-          # skipping the clean is safe.
-          clean: false
-      - name: Restore persistent .env
-        run: |
-          # Secrets live on the server, outside the repo checkout.
-          # Create ~/med-reminder.env once (copy of .env.example + real values).
-          if [ -f "$HOME/med-reminder.env" ]; then
-            cp "$HOME/med-reminder.env" .env
-            echo "Using persistent env from \$HOME/med-reminder.env"
-          else
-            echo "::error::$HOME/med-reminder.env not found on the runner. Create it once before deploying."
-            exit 1
-          fi
-      - name: Build & start stack
-        run: docker compose up -d --build --remove-orphans
-      - name: Prune old images
-        run: docker image prune -f
-      - name: Health check
-        run: |
-          sleep 10
-          curl -fsS http://localhost:${BACKEND_PORT:-8000}/health || (docker compose logs --tail=50 backend && exit 1)
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          # Repo VPS'te bir kez clone'lanır; .env orada durur (git-ignored).
+          # Gerekli secret'lar: VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.VPS_APP_DIR }}"
+            git fetch --prune origin
+            git checkout -B main origin/main
+            git reset --hard origin/main
+            docker compose --profile remote up -d --build --remove-orphans
+            docker image prune -f
+            sleep 10
+            curl -fsS http://127.0.0.1:8000/health || { docker compose logs --tail=50 backend; exit 1; }

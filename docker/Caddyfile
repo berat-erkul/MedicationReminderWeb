@@ -1,18 +1,26 @@
-# Single entrypoint behind Tailscale Funnel.
-# TLS is terminated by Funnel, so Caddy serves plain HTTP here.
+# Single internal entrypoint behind Cloudflare Tunnel.
+# cloudflared → http://caddy:8090 ; Cloudflare terminates TLS, so plain HTTP here.
 {
 	auto_https off
 }
 
 :8090 {
-	# ntfy under /ntfy/* (prefix stripped); streaming needs unbuffered flush.
+	# ntfy under /ntfy/* (prefix stripped); the NDJSON stream needs unbuffered flush.
 	handle_path /ntfy/* {
 		reverse_proxy ntfy:80 {
 			flush_interval -1
 		}
 	}
 
-	# Everything else → FastAPI backend (/api/..., /health).
+	# Operator-only surface — not exposed through the public tunnel.
+	# Reach the web panel + these endpoints via an SSH tunnel to the VPS instead.
+	@operator path /api/users* /api/admin* /api/dashboard*
+	handle @operator {
+		respond 404
+	}
+
+	# Everything else → FastAPI backend (/api/register, /api/medicines, /api/app/*,
+	# /api/reminders/*, /api/reports/*, /api/notify/*, /health).
 	handle {
 		reverse_proxy backend:8000
 	}

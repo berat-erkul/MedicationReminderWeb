@@ -3,12 +3,15 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from api.deps import require_admin
 from database.session import get_session
+from messaging.telegram import telegram_client
 from models.entities import User
 from models.schemas import UserCreate, UserRead, UserUpdate
 from utils.helpers import normalize_phone
 
-router = APIRouter(prefix="/users", tags=["users"])
+# System-wide user management — admin-gated (X-Admin-Token) when ADMIN_TOKEN is set.
+router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=list[UserRead])
@@ -44,7 +47,7 @@ def get_user(user_id: int, session: Session = Depends(get_session)) -> User:
 
 
 @router.patch("/{user_id}", response_model=UserRead)
-def update_user(
+async def update_user(
     user_id: int, payload: UserUpdate, session: Session = Depends(get_session)
 ) -> User:
     user = session.get(User, user_id)
@@ -54,12 +57,22 @@ def update_user(
     data = payload.model_dump(exclude_unset=True)
     if "phone" in data and data["phone"]:
         data["phone"] = normalize_phone(data["phone"])
+    phone_changed = "phone" in data and data["phone"] != user.phone
+
     for key, value in data.items():
         setattr(user, key, value)
 
     session.add(user)
     session.commit()
     session.refresh(user)
+
+    if phone_changed:
+        await telegram_client.send_message(
+            user.phone,
+            f"✅ Bağlantı başarılı!\n\n{user.name}, İlaç Hatırlatıcı uygulaman bu "
+            f"Telegram sohbetine bağlandı. İlaç saatlerinde buradan hatırlatma alacaksın.",
+        )
+
     return user
 
 

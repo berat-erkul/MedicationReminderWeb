@@ -1,10 +1,14 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Sent as X-Admin-Token on every request; required once the backend has
+// ADMIN_TOKEN set (public deploy). Baked at build time — panel is operator-only.
+const ADMIN_TOKEN = process.env.NEXT_PUBLIC_ADMIN_TOKEN || "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(ADMIN_TOKEN ? { "X-Admin-Token": ADMIN_TOKEN } : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",

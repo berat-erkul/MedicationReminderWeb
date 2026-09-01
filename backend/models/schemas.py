@@ -117,6 +117,7 @@ class RegisterRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     phone: str = Field(min_length=3, max_length=40)  # Telegram chat_id
     timezone: str = "Europe/Istanbul"
+    invite_code: str | None = None  # required when REGISTRATION_SECRET is set
 
 
 class RegisterResponse(BaseModel):

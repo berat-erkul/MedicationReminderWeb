@@ -22,6 +22,14 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/medication.db"
 
+    # Access control — REQUIRED on a public deployment.
+    # registration_secret: unset → registration is open (LAN/dev only).
+    #   set → POST /api/register must carry a matching `invite_code`.
+    # admin_token: unset → /api/users, /api/admin, /api/dashboard/* are open.
+    #   set → those endpoints require the `X-Admin-Token` header.
+    registration_secret: str | None = None
+    admin_token: str | None = None
+
     # Telegram bot (messaging channel)
     telegram_bot_token: str | None = None
     telegram_api_base: str = "https://api.telegram.org"

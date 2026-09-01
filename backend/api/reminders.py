@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, col, func, select
 
 from ai.service import ai_service
-from api.deps import get_current_user
+from api.deps import get_current_user, require_admin
 from database.session import get_session
 from models.entities import Medicine, Message, Reminder, Schedule, User
 from models.schemas import DashboardStats, MessageRead, ReminderRead
@@ -126,7 +126,7 @@ async def notify_test(user: User = Depends(get_current_user)) -> dict:
     return {"ok": True, "topic": settings.ntfy_topic, "enabled": settings.push_enabled}
 
 
-@router.get("/dashboard/stats", response_model=DashboardStats)
+@router.get("/dashboard/stats", response_model=DashboardStats, dependencies=[Depends(require_admin)])
 def dashboard_stats(session: Session = Depends(get_session)) -> DashboardStats:
     now = utc_now()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)

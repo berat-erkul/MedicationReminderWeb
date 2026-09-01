@@ -50,6 +50,17 @@ def test_due_for_retry_waits_for_interval():
     assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=11)) is True
 
 
+def test_due_for_retry_handles_naive_sent_at():
+    """SQLite döndürdüğü tz-naive sent_at ile aware now karşılaştırılabilmeli."""
+    aware_now = utc_now()
+    naive_sent = aware_now.replace(tzinfo=None) - timedelta(minutes=20)
+    reminder = Reminder(
+        user_id=1, schedule_id=1, status=ReminderStatus.SENT,
+        scheduled_for=aware_now, sent_at=naive_sent, retry_count=0,
+    )
+    assert reminder_service.due_for_retry(reminder, now=aware_now) is True
+
+
 def test_openrouter_refuses_paid_model_when_free_only(monkeypatch):
     """Billing guard: a non-':free' model must never reach the API."""
     monkeypatch.setattr(ai_service.settings, "openrouter_api_key", "sk-or-test")

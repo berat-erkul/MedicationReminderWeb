@@ -8,7 +8,7 @@ import pytest
 from ai.service import ai_service
 from models.entities import Reminder
 from services.reminder_service import reminder_service
-from utils.constants import ReminderStatus
+from utils.constants import ReminderAction, ReminderStatus
 from utils.helpers import normalize_phone, normalize_reply, utc_now
 
 
@@ -20,45 +20,55 @@ def test_normalize_reply_lowercases_and_trims():
     assert normalize_reply("  Aldım  ") == "aldım"
 
 
-def test_classify_positive_reply():
-    assert reminder_service.classify_reply("e") == ReminderStatus.COMPLETED
-    assert reminder_service.classify_reply("Aldım") == ReminderStatus.COMPLETED
+def test_classify_reply_maps_to_actions():
+    assert reminder_service.classify_reply("e") is ReminderAction.TAKE
+    assert reminder_service.classify_reply("Aldım") is ReminderAction.TAKE
+    assert reminder_service.classify_reply("ertele") is ReminderAction.SNOOZE
+    assert reminder_service.classify_reply("sonra") is ReminderAction.SNOOZE
+    assert reminder_service.classify_reply("h") is ReminderAction.SKIP
+    assert reminder_service.classify_reply("almadım") is ReminderAction.SKIP
+    assert reminder_service.classify_reply("belki yarın") is None
 
 
-def test_classify_negative_reply():
-    assert reminder_service.classify_reply("h") == ReminderStatus.SKIPPED
-    assert reminder_service.classify_reply("almadım") == ReminderStatus.SKIPPED
+def test_nags_due_follows_offset_schedule():
+    s = reminder_service
+    assert s.NAG_OFFSETS_MIN == (5, 15, 45, 60, 120, 180, 240)
+    assert s.nags_due(0) == 0
+    assert s.nags_due(4) == 0
+    assert s.nags_due(5) == 1
+    assert s.nags_due(20) == 2
+    assert s.nags_due(50) == 3
+    assert s.nags_due(61) == 4
+    assert s.nags_due(241) == 7   # all seven sent
+    assert s.nags_due(999) == 7
 
 
-def test_classify_unknown_reply_returns_none():
-    assert reminder_service.classify_reply("belki sonra") is None
+def test_missed_cutoff_at_5_hours():
+    s = reminder_service
+    assert s.is_missed(299) is False
+    assert s.is_missed(300) is True
 
 
-def test_due_for_retry_waits_for_interval():
+def test_elapsed_min_uses_nag_anchor_over_sent_at():
     now = utc_now()
     reminder = Reminder(
-        user_id=1,
-        schedule_id=1,
-        status=ReminderStatus.SENT,
-        scheduled_for=now,
-        sent_at=now,
-        retry_count=0,
+        user_id=1, schedule_id=1, status=ReminderStatus.SENT,
+        scheduled_for=now, sent_at=now - timedelta(hours=3),
+        nag_anchor=now - timedelta(minutes=10),  # snooze reset the anchor
     )
-    # Repeats every 10 min — not due right after sending.
-    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=6)) is False
-    # Due once the interval has elapsed.
-    assert reminder_service.due_for_retry(reminder, now=now + timedelta(minutes=11)) is True
+    # ~10 min since the anchor, not 3h since sent_at
+    assert 9 < reminder_service.elapsed_min(reminder, now=now) < 11
 
 
-def test_due_for_retry_handles_naive_sent_at():
-    """SQLite döndürdüğü tz-naive sent_at ile aware now karşılaştırılabilmeli."""
+def test_elapsed_min_handles_naive_anchor():
+    """SQLite tz-naive datetime + aware now birlikte çalışmalı."""
     aware_now = utc_now()
-    naive_sent = aware_now.replace(tzinfo=None) - timedelta(minutes=20)
+    naive_anchor = aware_now.replace(tzinfo=None) - timedelta(minutes=45)
     reminder = Reminder(
         user_id=1, schedule_id=1, status=ReminderStatus.SENT,
-        scheduled_for=aware_now, sent_at=naive_sent, retry_count=0,
+        scheduled_for=aware_now, nag_anchor=naive_anchor,
     )
-    assert reminder_service.due_for_retry(reminder, now=aware_now) is True
+    assert 44 < reminder_service.elapsed_min(reminder, now=aware_now) < 46
 
 
 def test_openrouter_refuses_paid_model_when_free_only(monkeypatch):
@@ -68,15 +78,3 @@ def test_openrouter_refuses_paid_model_when_free_only(monkeypatch):
     monkeypatch.setattr(ai_service.settings, "openrouter_model", "openai/gpt-4o")
     with pytest.raises(RuntimeError, match="ücretsiz"):
         asyncio.run(ai_service._openrouter("merhaba", None))
-
-
-def test_due_for_retry_false_when_answered():
-    now = utc_now()
-    reminder = Reminder(
-        user_id=1,
-        schedule_id=1,
-        status=ReminderStatus.COMPLETED,
-        scheduled_for=now,
-        sent_at=now,
-    )
-    assert reminder_service.due_for_retry(reminder, now=now + timedelta(hours=1)) is False

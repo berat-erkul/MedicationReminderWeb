@@ -94,6 +94,8 @@ class ReminderRead(BaseModel):
     sent_at: Optional[datetime]
     answered_at: Optional[datetime]
     retry_count: int
+    snoozed_until: Optional[datetime] = None
+    snooze_count: int = 0
     notes: Optional[str]
     created_at: datetime
 

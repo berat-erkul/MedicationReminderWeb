@@ -1,4 +1,4 @@
-"""APScheduler jobs for due reminders and retries."""
+"""APScheduler jobs: create+send due reminders, then tick (nag / snooze-resume / missed)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from database.session import engine
 from models.entities import Reminder
 from services.reminder_service import reminder_service
 from utils.constants import ReminderStatus
+from utils.helpers import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -28,25 +29,39 @@ async def job_create_and_send() -> None:
                 logger.exception("Failed to send reminder %s", reminder.id)
 
 
-async def job_retries() -> None:
+async def job_reminders_tick() -> None:
+    """Her dakika: ertele süresi dolanları taze gönder, açıkları nag'le/missed'le."""
+    now = utc_now()
     with Session(engine) as session:
-        open_reminders = session.exec(
+        # 1) Ertele süresi dolmuş → doz saati o anmış gibi tekrar hatırlat
+        for reminder in session.exec(
+            select(Reminder).where(Reminder.status == ReminderStatus.SNOOZED)
+        ).all():
+            due = reminder.snoozed_until
+            if due is not None and due.tzinfo is None:
+                due = due.replace(tzinfo=now.tzinfo)
+            if due is None or now >= due:
+                try:
+                    await reminder_service.resume_from_snooze(session, reminder)
+                    logger.info("Resumed snoozed reminder %s", reminder.id)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Snooze resume failed for %s", reminder.id)
+
+        # 2) Açık hatırlatmalar → nag ya da missed
+        for reminder in session.exec(
             select(Reminder).where(Reminder.status == ReminderStatus.SENT)
-        ).all()
-        for reminder in open_reminders:
+        ).all():
             try:
-                if reminder_service.due_for_retry(reminder):
-                    await reminder_service.repeat_push(session, reminder)
-                    logger.info("Push repeat sent for reminder %s", reminder.id)
+                await reminder_service.tick_reminder(session, reminder, now)
             except Exception:  # noqa: BLE001
-                logger.exception("Retry handling failed for %s", reminder.id)
+                logger.exception("Tick failed for reminder %s", reminder.id)
 
 
 def start_scheduler() -> None:
     if scheduler.running:
         return
     scheduler.add_job(job_create_and_send, "cron", second=0, id="create_send", replace_existing=True)
-    scheduler.add_job(job_retries, "interval", minutes=1, id="retries", replace_existing=True)
+    scheduler.add_job(job_reminders_tick, "interval", minutes=1, id="tick", replace_existing=True)
     scheduler.start()
     logger.info("Scheduler started")
 

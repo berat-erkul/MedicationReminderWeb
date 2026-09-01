@@ -27,10 +27,11 @@ class TelegramClient:
         return f"{self.settings.telegram_api_base.rstrip('/')}/bot{self.token}/{method}"
 
     @staticmethod
-    def take_skip_buttons(reminder_id: int) -> list[list[dict]]:
-        """Inline keyboard: one-tap 'Aldım' / 'Almadım' for elderly users."""
+    def reminder_buttons(reminder_id: int) -> list[list[dict]]:
+        """Inline keyboard: one-tap 'Aldım' / 'Ertele' / 'Almadım' for elderly users."""
         return [[
             {"text": "✅ Aldım", "callback_data": f"take:{reminder_id}"},
+            {"text": "⏰ Ertele", "callback_data": f"snooze:{reminder_id}"},
             {"text": "❌ Almadım", "callback_data": f"skip:{reminder_id}"},
         ]]
 

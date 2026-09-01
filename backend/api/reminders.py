@@ -62,6 +62,20 @@ async def complete_reminder(
     return {"ok": True, "reminder_id": reminder.id, "status": reminder.status.value}
 
 
+@router.post("/reminders/{reminder_id}/snooze")
+async def snooze_reminder(
+    reminder_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """'Ertele' from the app — 1 saat sessizlik, sonra taze hatırlatma."""
+    reminder = session.get(Reminder, reminder_id)
+    if not reminder or reminder.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    reminder = await reminder_service.snooze_reminder(session, reminder)
+    return {"ok": True, "reminder_id": reminder.id, "status": reminder.status.value}
+
+
 @router.get("/app/today")
 def app_today(
     session: Session = Depends(get_session),
@@ -147,7 +161,9 @@ def dashboard_stats(session: Session = Depends(get_session)) -> DashboardStats:
         reminders_today=len(today),
         completed_today=sum(1 for r in today if r.status == ReminderStatus.COMPLETED),
         missed_today=sum(1 for r in today if r.status == ReminderStatus.MISSED),
-        pending_replies=sum(1 for r in today if r.status == ReminderStatus.SENT),
+        pending_replies=sum(
+            1 for r in today if r.status in (ReminderStatus.SENT, ReminderStatus.SNOOZED)
+        ),
     )
 
 
@@ -167,7 +183,8 @@ async def weekly_report(
         "skipped": sum(1 for r in reminders if r.status == ReminderStatus.SKIPPED),
         "missed": sum(1 for r in reminders if r.status == ReminderStatus.MISSED),
         "pending": sum(
-            1 for r in reminders if r.status in (ReminderStatus.SENT, ReminderStatus.PENDING)
+            1 for r in reminders
+            if r.status in (ReminderStatus.SENT, ReminderStatus.PENDING, ReminderStatus.SNOOZED)
         ),
     }
     rate = round((counts["completed"] / counts["total"]) * 100, 1) if counts["total"] else 0.0

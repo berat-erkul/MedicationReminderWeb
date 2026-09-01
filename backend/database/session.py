@@ -41,6 +41,15 @@ def _migrate() -> None:
         med_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(medicines)")}
         if "user_id" not in med_cols:
             conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN user_id INTEGER")
+        # Telegram nag/snooze flow — additive columns on existing reminders.
+        rem_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(reminders)")}
+        for col, ddl in (
+            ("nag_anchor", "ALTER TABLE reminders ADD COLUMN nag_anchor DATETIME"),
+            ("snoozed_until", "ALTER TABLE reminders ADD COLUMN snoozed_until DATETIME"),
+            ("snooze_count", "ALTER TABLE reminders ADD COLUMN snooze_count INTEGER DEFAULT 0"),
+        ):
+            if col not in rem_cols:
+                conn.exec_driver_sql(ddl)
 
     with Session(engine) as session:
         for user in session.exec(select(User).where(User.access_token.is_(None))).all():

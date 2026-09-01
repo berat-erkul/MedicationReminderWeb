@@ -87,8 +87,14 @@ class Reminder(SQLModel, table=True):
     scheduled_for: datetime = Field(index=True)
     sent_at: Optional[datetime] = None
     answered_at: Optional[datetime] = None
+    # Telegram nag offsets are counted from nag_anchor (= sent_at at first send,
+    # then reset to snooze-expiry each time the user hits "Ertele").
+    nag_anchor: Optional[datetime] = None
+    # retry_count = how many "Lütfen işaretleme yapın." nags sent since nag_anchor.
     retry_count: int = Field(default=0)
     last_retry_at: Optional[datetime] = None
+    snoozed_until: Optional[datetime] = None
+    snooze_count: int = Field(default=0)
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
 

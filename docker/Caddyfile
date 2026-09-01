@@ -14,8 +14,9 @@
 
 	# Operator-only surface — not exposed through the public tunnel.
 	# Reach the web panel + these endpoints via an SSH tunnel to the VPS instead.
-	@operator path /api/users* /api/admin* /api/dashboard*
-	respond @operator 404
+	handle /api/users* /api/admin* /api/dashboard* {
+		respond 404
+	}
 
 	# Everything else → FastAPI backend (/api/register, /api/medicines, /api/app/*,
 	# /api/reminders/*, /api/reports/*, /api/notify/*, /health).

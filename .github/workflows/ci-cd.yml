@@ -65,6 +65,7 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.VPS_APP_DIR }}"
             git fetch --prune origin
+            git checkout -B main origin/main
             git reset --hard origin/main
             docker compose --profile remote up -d --build --remove-orphans
             docker image prune -f

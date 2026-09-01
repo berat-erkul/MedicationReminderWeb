@@ -33,8 +33,8 @@ fi
 echo "→ '${TOPIC}' topic'ine okuma+yazma erişimi..."
 dc exec -T ntfy ntfy access "${NTFY_USER}" "${TOPIC}" rw
 
-echo "→ Kalıcı token üretiliyor..."
-TOKEN="$(dc exec -T ntfy ntfy token add --expires=never "${NTFY_USER}" | grep -oE 'tk_[A-Za-z0-9_-]+' | head -1)"
+echo "→ Kalıcı token üretiliyor (süresiz)..."
+TOKEN="$(dc exec -T ntfy ntfy token add --label med-reminder "${NTFY_USER}" | grep -oE 'tk_[A-Za-z0-9_-]+' | head -1)"
 
 if [ -z "${TOKEN}" ]; then
   echo "HATA: token üretilemedi. Elle dene: docker compose exec ntfy ntfy token list ${NTFY_USER}" >&2

@@ -54,7 +54,9 @@ services:
     restart: unless-stopped
     command: serve
     environment:
-      NTFY_BASE_URL: ${NTFY_PUBLIC_URL:-http://ntfy:80}
+      # ntfy sub-path (/ntfy) altında servis ediliyor; base-url path kabul etmiyor,
+      # mobil app stream'i doğrudan okuduğu için iç adres yeterli.
+      NTFY_BASE_URL: http://ntfy:80
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_CACHE_DURATION: 48h
       NTFY_BEHIND_PROXY: "true"

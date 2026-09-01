@@ -14,7 +14,8 @@
 
 	# Operator-only surface — not exposed through the public tunnel.
 	# Reach the web panel + these endpoints via an SSH tunnel to the VPS instead.
-	handle /api/users* /api/admin* /api/dashboard* {
+	@operator path /api/users* /api/admin* /api/dashboard*
+	handle @operator {
 		respond 404
 	}
 

@@ -77,6 +77,8 @@ services:
   # Lokalde çalışmaz; backend/frontend/ntfy zaten localhost'ta yayında.
 
   # Tek iç giriş noktası: /ntfy/* → ntfy, geri kalan → backend.
+  # cloudflared (host'ta systemd ya da aşağıdaki container) buraya yönlenir:
+  #   <public-hostname> → http://localhost:8090
   caddy:
     image: caddy:2-alpine
     container_name: med-caddy
@@ -90,14 +92,14 @@ services:
       - backend
       - ntfy
 
-  # Cloudflare Tunnel: VPS'ten Cloudflare'e giden tek yönlü bağlantı, hiç port
-  # açmaz. Token'ı Cloudflare Zero Trust panelinden al (Networks → Tunnels).
-  # Hostname → service yönlendirmesi de o panelde: <hostname> → http://caddy:8090
+  # Kendi Cloudflare Tunnel'ın YOKSA: docker compose --profile own-tunnel up -d
+  # Zaten host'ta cloudflared çalışıyorsa bu servise gerek yok — sadece panelden
+  # yeni bir Public Hostname → http://localhost:8090 ekle.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: med-cloudflared
     restart: unless-stopped
-    profiles: ["remote"]
+    profiles: ["own-tunnel"]
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
